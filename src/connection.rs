@@ -58,6 +58,12 @@ impl Connection {
         Ok(())
     }
 
+    fn logout(&mut self) {
+        if let Some(session) = &mut self.session {
+            let _ = session.logout();
+        }
+    }
+
     /// Listen to updates from the server and execute the handler when one is
     /// received. If something goes wrong with the connection, attempt to
     /// reconnect a few times before giving up.
@@ -70,15 +76,22 @@ impl Connection {
         loop {
             match self.wait() {
                 Ok(()) => match &mut self.session {
-                    Some(session) => handler(session)?,
-                    None => unreachable!(),
+                    None => {
+                        self.logout();
+                        break;
+                    }
+                    Some(session) => {
+                        if let Err(err) = handler(session) {
+                            warn!("Error in handler: {}, reconnecting...", err);
+                            self.logout();
+                            break;
+                        }
+                    }
                 },
                 Err(e) => {
                     warn!("Connection error: {}", e);
                     // attempt to log out before reconnecting
-                    if let Some(session) = &mut self.session {
-                        let _ = session.logout();
-                    }
+                    self.logout();
                     break;
                 }
             }
