@@ -1,11 +1,15 @@
 use std::error::Error;
 use std::fs;
+use std::io::{Cursor, Write};
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Stdio};
 use std::time::{Duration, SystemTime};
 
+use dbus::blocking::Connection;
 use mailparse::{parse_headers, MailHeaderMap};
-use notify_rust::Notification;
+use notify_rust::{Notification, Timeout};
+use rodio::Source;
+use rust_embed::RustEmbed;
 use shellexpand;
 use sysinfo::{RefreshKind, SystemExt};
 use walkdir::WalkDir;
@@ -95,6 +99,8 @@ impl Notifier {
             .summary(from.as_str())
             .body(subject.as_str())
             .icon("mail-unread")
+            .appname("You've got mail!")
+            .timeout(Timeout::Milliseconds(5000))
             .show()?;
 
         // play audio
@@ -237,11 +243,23 @@ impl Emacs {
         Ok(Self {})
     }
 
+    /// use d-bus to notify Emacs
     pub fn notify(&self) -> Result<()> {
         debug!("Notifying Emacs");
+        let conn = Connection::new_session()?;
+        // I am registering these methods using some elisp code.
+        let proxy = conn.with_proxy("net.ogbe.emacs", "/mail", Duration::from_millis(5000));
+        let _ = proxy.method_call("net.ogbe.emacs.mail", "reindex", ())?;
+        let _ = proxy.method_call("net.ogbe.emacs.mail", "refresh", ())?;
         Ok(())
     }
 }
+
+// I use RustEmbed to save the wav notifications in the binary. I only have to
+// give the folder relative to the project root, and everything else works.
+#[derive(RustEmbed)]
+#[folder = "src/blob/"]
+struct Asset;
 
 struct SoundNotifier {}
 
@@ -250,8 +268,42 @@ impl SoundNotifier {
         Ok(Self {})
     }
 
+    // I would like to use pure rust library like rodio here, but
+    // unfortunately, due to an issue [1], this code leaves a lingering audio
+    // thread which uses too much CPU for my liking. So for now, we just pipe
+    // the bytes to aplay, see the function below.
+    //
+    // https://github.com/RustAudio/rodio/issues/299
+    pub fn _play_rodio(&self) -> Result<()> {
+        let device = rodio::default_output_device().ok_or("Couldn't find output device!")?;
+        // I wonder whether I can cache some of these below operations? I
+        // attempted to store some of the intermediate things (the cursor, the
+        // src, etc. in the SoundNotifier struct, but ran into a whole bunch of
+        // problems.
+        let bytes = Asset::get("snd1.wav").ok_or("Couldn't get sound asset")?;
+        let cursor = Cursor::new(bytes);
+        let src = rodio::Decoder::new(cursor)?;
+        rodio::play_raw(&device, src.convert_samples());
+        Ok(())
+    }
+
+    pub fn _play_aplay(&self) -> Result<()> {
+        let bytes = Asset::get("snd1.wav").ok_or("Couldn't get sound asset")?;
+        let mut proc = Command::new("aplay")
+            .arg("-")
+            .stdin(Stdio::piped())
+            .spawn()?;
+        {
+            // need new scope because stdin is borrowing the proc?
+            let stdin = proc.stdin.as_mut().ok_or("Couldn't open stdin")?;
+            stdin.write_all(&*bytes)?;
+        }
+        proc.wait()?;
+        Ok(())
+    }
+
     pub fn play(&self) -> Result<()> {
         debug!("Playing sound");
-        Ok(())
+        self._play_aplay()
     }
 }

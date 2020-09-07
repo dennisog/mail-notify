@@ -85,7 +85,7 @@ mod tests {
         assert_eq!(config.pass_cmd, "echo super_secret_password");
         assert_eq!(config.mailbox, "INBOX");
         assert_eq!(config.maildir, "~/Maildir");
-        assert_eq!(config.mbsync_path, "msmtp");
+        assert_eq!(config.mbsync_path, "mbsync");
         assert_eq!(config.mbsync_conf, "");
     }
 
