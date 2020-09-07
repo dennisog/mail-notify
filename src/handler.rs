@@ -103,11 +103,11 @@ impl Notifier {
             .timeout(Timeout::Milliseconds(5000))
             .show()?;
 
-        // play audio
-        self.sound.play()?;
-
         // notify emacs
         self.emacs.notify()?;
+
+        // play audio
+        self.sound.play()?;
 
         Ok(())
     }
