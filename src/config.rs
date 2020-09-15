@@ -52,7 +52,7 @@ impl Config {
             return Err(format!("Command exited with code: {:?}", output.status.code()).into());
         }
         let s = std::str::from_utf8(&output.stdout)?;
-        Ok(String::from(s.strip_suffix("\n").unwrap()))
+        Ok(String::from(s.strip_suffix("\n").unwrap_or(s)))
     }
 }
 
